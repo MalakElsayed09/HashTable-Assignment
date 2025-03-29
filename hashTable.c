@@ -1,114 +1,115 @@
-#include "hashTable.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
+#include "hashTable.h"
 
-void init_table(HashTable *table) {
-    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-        table->buckets[i] = NULL;
-        pthread_rwlock_init(&table->locks[i], NULL);
-    }
-}
+#define HASH_SIZE 10
 
-uint32_t jenkins_one_at_a_time_hash(const char *key) {
-    uint32_t hash = 0;
+// Jenkins' one-at-a-time hash function
+unsigned int jenkins_hash(const char *key) {
+    unsigned int hash = 0;
     while (*key) {
-        hash += (unsigned char)(*key);
-        hash += (hash << 10);
-        hash ^= (hash >> 6);
-        key++;
+        hash += *key++;
+        hash += hash << 10;
+        hash ^= hash >> 6;
     }
-    hash += (hash << 3);
-    hash ^= (hash >> 11);
-    hash += (hash << 15);
-    return hash % HASH_TABLE_SIZE;
+    hash += hash << 3;
+    hash ^= hash >> 11;
+    hash += hash << 15;
+    return hash % HASH_SIZE;
 }
 
-void insert(HashTable *table, const char *key, uint32_t salary) {
-    uint32_t index = jenkins_one_at_a_time_hash(key);
-    pthread_rwlock_wrlock(&table->locks[index]);
-    printf("Write lock acquired for insert on index %u\n", index);
-    
-    hashRecord *newRecord = (hashRecord *)malloc(sizeof(hashRecord));
-    if (!newRecord) {
-        perror("Failed to allocate memory");
-        pthread_rwlock_unlock(&table->locks[index]);
-        return;
+// Initialize the hash table
+void hashtable_init(HashTable *ht) {
+    for (int i = 0; i < HASH_SIZE; i++) {
+        ht->buckets[i] = NULL;
+        pthread_rwlock_init(&ht->locks[i], NULL);
     }
-    newRecord->hash = index;
-    strncpy(newRecord->name, key, 50);
-    newRecord->salary = salary;
-    newRecord->next = table->buckets[index];
-    table->buckets[index] = newRecord;
-    
-    printf("Inserted record: %s with salary %u at index %u\n", key, salary, index);
-    pthread_rwlock_unlock(&table->locks[index]);
-    printf("Write lock released for insert on index %u\n", index);
 }
 
-void delete(HashTable *table, const char *key) {
-    uint32_t index = jenkins_one_at_a_time_hash(key);
-    pthread_rwlock_wrlock(&table->locks[index]);
-    printf("Write lock acquired for delete on index %u\n", index);
+// Insert a record into the hash table
+void hashtable_insert(HashTable *ht, const char *key, int value) {
+    unsigned int index = jenkins_hash(key);
+    pthread_rwlock_wrlock(&ht->locks[index]);
+    printf("Lock acquired for insert: %s\n", key);
     
-    hashRecord *prev = NULL;
-    hashRecord *current = table->buckets[index];
-    while (current) {
-        if (strcmp(current->name, key) == 0) {
+    HashRecord *new_record = malloc(sizeof(HashRecord));
+    strcpy(new_record->key, key);
+    new_record->value = value;
+    new_record->next = ht->buckets[index];
+    ht->buckets[index] = new_record;
+    
+    printf("Inserted: %s -> %d\n", key, value);
+    
+    pthread_rwlock_unlock(&ht->locks[index]);
+    printf("Lock released for insert: %s\n", key);
+}
+
+// Search for a record in the hash table
+int hashtable_search(HashTable *ht, const char *key) {
+    unsigned int index = jenkins_hash(key);
+    pthread_rwlock_rdlock(&ht->locks[index]);
+    printf("Lock acquired for search: %s\n", key);
+    
+    HashRecord *curr = ht->buckets[index];
+    while (curr) {
+        if (strcmp(curr->key, key) == 0) {
+            printf("Found: %s -> %d\n", key, curr->value);
+            pthread_rwlock_unlock(&ht->locks[index]);
+            printf("Lock released for search: %s\n", key);
+            return curr->value;
+        }
+        curr = curr->next;
+    }
+    
+    printf("Not found: %s\n", key);
+    pthread_rwlock_unlock(&ht->locks[index]);
+    printf("Lock released for search: %s\n", key);
+    return -1;
+}
+
+// Delete a record from the hash table
+void hashtable_delete(HashTable *ht, const char *key) {
+    unsigned int index = jenkins_hash(key);
+    pthread_rwlock_wrlock(&ht->locks[index]);
+    printf("Lock acquired for delete: %s\n", key);
+    
+    HashRecord *curr = ht->buckets[index];
+    HashRecord *prev = NULL;
+    while (curr) {
+        if (strcmp(curr->key, key) == 0) {
             if (prev) {
-                prev->next = current->next;
+                prev->next = curr->next;
             } else {
-                table->buckets[index] = current->next;
+                ht->buckets[index] = curr->next;
             }
-            free(current);
-            printf("Deleted record: %s from index %u\n", key, index);
-            pthread_rwlock_unlock(&table->locks[index]);
-            printf("Write lock released for delete on index %u\n", index);
+            free(curr);
+            printf("Deleted: %s\n", key);
+            pthread_rwlock_unlock(&ht->locks[index]);
+            printf("Lock released for delete: %s\n", key);
             return;
         }
-        prev = current;
-        current = current->next;
+        prev = curr;
+        curr = curr->next;
     }
     
-    printf("Record not found for deletion: %s\n", key);
-    pthread_rwlock_unlock(&table->locks[index]);
-    printf("Write lock released for delete on index %u\n", index);
+    printf("Not found for delete: %s\n", key);
+    pthread_rwlock_unlock(&ht->locks[index]);
+    printf("Lock released for delete: %s\n", key);
 }
 
-hashRecord *search(HashTable *table, const char *key) {
-    uint32_t index = jenkins_one_at_a_time_hash(key);
-    pthread_rwlock_rdlock(&table->locks[index]);
-    printf("Read lock acquired for search on index %u\n", index);
-    
-    hashRecord *current = table->buckets[index];
-    while (current) {
-        if (strcmp(current->name, key) == 0) {
-            printf("Found record: %s with salary %u at index %u\n", key, current->salary, index);
-            pthread_rwlock_unlock(&table->locks[index]);
-            printf("Read lock released for search on index %u\n", index);
-            return current;
+// Destroy the hash table
+void hashtable_destroy(HashTable *ht) {
+    for (int i = 0; i < HASH_SIZE; i++) {
+        pthread_rwlock_wrlock(&ht->locks[i]);
+        HashRecord *curr = ht->buckets[i];
+        while (curr) {
+            HashRecord *temp = curr;
+            curr = curr->next;
+            free(temp);
         }
-        current = current->next;
-    }
-    
-    printf("Record not found: %s\n", key);
-    pthread_rwlock_unlock(&table->locks[index]);
-    printf("Read lock released for search on index %u\n", index);
-    return NULL;
-}
-
-void free_table(HashTable *table) {
-    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-        pthread_rwlock_wrlock(&table->locks[i]);
-        hashRecord *current = table->buckets[i];
-        while (current) {
-            hashRecord *next = current->next;
-            free(current);
-            current = next;
-        }
-        table->buckets[i] = NULL;
-        pthread_rwlock_unlock(&table->locks[i]);
-        pthread_rwlock_destroy(&table->locks[i]);
+        pthread_rwlock_unlock(&ht->locks[i]);
+        pthread_rwlock_destroy(&ht->locks[i]);
     }
 }
-
