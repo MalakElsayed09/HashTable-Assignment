@@ -10,9 +10,8 @@
 #define TABLE_SIZE 100
 
 typedef struct hash_struct {
-    uint32_t hash;
-    char name[50];
-    uint32_t salary;
+    char name[50];   // Consistent field name
+    uint32_t salary; // Consistent field name
     struct hash_struct *next;
 } hashRecord;
 
@@ -29,4 +28,3 @@ hashRecord *search(HashTable *table, const char *name);
 void free_table(HashTable *table);
 
 #endif // HASHTABLE_H
-
