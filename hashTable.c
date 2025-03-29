@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include "hashtable.h"
+#include "hashTable.h"
 
 #define TABLE_SIZE 100  // Consistent with hashtable.h
 
