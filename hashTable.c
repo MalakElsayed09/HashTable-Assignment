@@ -100,16 +100,19 @@ void hashtable_delete(HashTable *ht, const char *key) {
 }
 
 // Destroy the hash table
-void hashtable_destroy(HashTable *ht) {
-    for (int i = 0; i < HASH_SIZE; i++) {
-        pthread_rwlock_wrlock(&ht->locks[i]);
-        HashRecord *curr = ht->buckets[i];
-        while (curr) {
-            HashRecord *temp = curr;
-            curr = curr->next;
+void free_table(HashTable *table) {
+    for (int i = 0; i < TABLE_SIZE; i++) {
+        pthread_rwlock_wrlock(&table->locks[i]); // Lock before modifying
+
+        hashRecord *current = table->buckets[i];
+        while (current) {
+            hashRecord *temp = current;
+            current = current->next;
             free(temp);
         }
-        pthread_rwlock_unlock(&ht->locks[i]);
-        pthread_rwlock_destroy(&ht->locks[i]);
+        table->buckets[i] = NULL;
+
+        pthread_rwlock_unlock(&table->locks[i]); 
+        pthread_rwlock_destroy(&table->locks[i]); // Destroy lock
     }
 }
