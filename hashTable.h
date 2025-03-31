@@ -8,14 +8,15 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <time.h>
+#include <sys/time.h>
 
 // Hash table record structure as specified in the assignment
 typedef struct hash_struct
 {
-  uint32_t hash;
-  char name[50];
-  uint32_t salary;
-  struct hash_struct *next;
+    uint32_t hash;
+    char name[50];
+    uint32_t salary;
+    struct hash_struct *next;
 } hashRecord;
 
 // Hash table with synchronization primitives
@@ -54,5 +55,14 @@ void print_record(FILE *file, hashRecord *record);
 
 // Free all resources used by the hash table
 void free_table(HashTable *table);
+
+// Print final summary
+void print_summary(HashTable *table);
+
+// Get current timestamp in microseconds
+uint64_t get_timestamp_us();
+
+// Log with timestamp
+void log_with_timestamp(FILE *file, const char *format, ...);
 
 #endif // HASHTABLE_H
