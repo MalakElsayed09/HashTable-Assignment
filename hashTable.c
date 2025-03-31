@@ -166,7 +166,7 @@ hashRecord* search(HashTable *table, const char *name) {
     
     // Log the search command
     log_timestamp(table->output_file);
-    fprintf(table->output_file, ",SEARCH,%s,0\n", name);
+    fprintf(table->output_file, ",SEARCH,%s\n", name);
     
     // Acquire read lock
     log_timestamp(table->output_file);
@@ -193,7 +193,13 @@ hashRecord* search(HashTable *table, const char *name) {
         if (copy) {
             memcpy(copy, result, sizeof(hashRecord));
             copy->next = NULL; // Isolate the copy
+            
+            // Print the found record
+            print_record(table->output_file, result);
         }
+    } else {
+        // Print "No Record Found" if not found
+        fprintf(table->output_file, "No Record Found\n");
     }
     
     // Release read lock
@@ -202,14 +208,7 @@ hashRecord* search(HashTable *table, const char *name) {
     log_timestamp(table->output_file);
     fprintf(table->output_file, ",READ LOCK RELEASED\n");
     
-    // If found, print the record
-    if (result) {
-        print_record(table->output_file, result);
-    } else {
-        fprintf(table->output_file, "No Record Found\n");
-    }
-    
-    return copy; // Return the isolated copy
+    return copy; // Return the isolated copy (caller is responsible for freeing)
 }
 
 // Delete a record from the hash table
@@ -218,16 +217,16 @@ void delete(HashTable *table, const char *name) {
     
     // Log the delete command
     log_timestamp(table->output_file);
-    fprintf(table->output_file, ",DELETE,%s,0\n", name);
+    fprintf(table->output_file, ",DELETE,%s\n", name);
     
     // Wait for all inserts to complete
     pthread_mutex_lock(&table->cv_mutex);
     if (!table->inserts_complete && table->active_inserts > 0) {
         log_timestamp(table->output_file);
-        fprintf(table->output_file, ": WAITING ON INSERTS\n");
+        fprintf(table->output_file, ",WAITING ON INSERTS\n");
         pthread_cond_wait(&table->insert_complete, &table->cv_mutex);
         log_timestamp(table->output_file);
-        fprintf(table->output_file, ": DELETE AWAKENED\n");
+        fprintf(table->output_file, ",DELETE AWAKENED\n");
     }
     pthread_mutex_unlock(&table->cv_mutex);
     
@@ -306,10 +305,26 @@ void free_table(HashTable *table) {
     fprintf(table->output_file, "\nNumber of lock acquisitions: %d\n", table->lock_acquisitions);
     fprintf(table->output_file, "Number of lock releases: %d\n", table->lock_releases);
     
-    // Print the final table (without locks)
+    // Print the final table with proper locking
+    log_timestamp(table->output_file);
+    fprintf(table->output_file, ",READ LOCK ACQUIRED\n");
+    pthread_rwlock_rdlock(&table->rwlock);
+    table->lock_acquisitions++; // Count this final lock
+    
     hashRecord *current = table->head;
     while (current) {
         print_record(table->output_file, current);
+        current = current->next;
+    }
+    
+    pthread_rwlock_unlock(&table->rwlock);
+    table->lock_releases++; // Count this final release
+    log_timestamp(table->output_file);
+    fprintf(table->output_file, ",READ LOCK RELEASED\n");
+    
+    // Free the records
+    current = table->head;
+    while (current) {
         hashRecord *next = current->next;
         free(current);
         current = next;
