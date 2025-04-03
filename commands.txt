@@ -1,1 +1,6 @@
-
+threads,5,0
+insert,Alice,50000
+insert,Bob,60000
+search,Alice,0
+delete,Bob,0
+print,0,0
