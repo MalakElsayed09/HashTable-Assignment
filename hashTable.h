@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <time.h>
 #include <sys/time.h>
+#include "rwlock.h"
 
 // Hash table record structure as specified in the assignment
 typedef struct hash_struct
@@ -18,6 +19,8 @@ typedef struct hash_struct
     uint32_t salary;
     struct hash_struct *next;
 } hashRecord;
+
+
 
 // Hash table with synchronization primitives
 typedef struct {
