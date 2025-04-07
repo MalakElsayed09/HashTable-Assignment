@@ -6,7 +6,6 @@
 #include <stdarg.h>
 #include <sys/time.h>
 
-
 // Get current timestamp in microseconds
 uint64_t get_timestamp_us() {
     struct timeval tv;
@@ -98,7 +97,7 @@ void insert(HashTable *table, const char *name, uint32_t salary) {
     // Log the insert command
     log_with_timestamp(table->output_file, "INSERT,%u,%s,%u\n", hash, name, salary);
 
-    //Track active inserts for delete synchronization
+    // Track active inserts for delete synchronization
     pthread_mutex_lock(&table->cv_mutex);
     table->active_inserts++;
     pthread_mutex_unlock(&table->cv_mutex);
@@ -117,11 +116,10 @@ void insert(HashTable *table, const char *name, uint32_t salary) {
         current = current->next;
     }
 
-    // If hash exists, update the record
     if (current && current->hash == hash && strcmp(current->name, name) == 0) {
         // Record already exists, update it
         current->salary = salary;
-        fprintf(table->output_file, "Insert failed: %s already exists\n", name);
+        log_with_timestamp(table->output_file, "Insert failed: %s already exists\n", name);
     } else {
         // Create a new record
         hashRecord *new_record = (hashRecord *)malloc(sizeof(hashRecord));
@@ -140,16 +138,14 @@ void insert(HashTable *table, const char *name, uint32_t salary) {
 
         // Insert in sorted order by hash
         if (!prev) {
-            // Insert at the beginning
             new_record->next = table->head;
             table->head = new_record;
         } else {
-            // Insert in the middle or end
             new_record->next = prev->next;
             prev->next = new_record;
         }
 
-        fprintf(table->output_file, "Inserted: %s, %u\n", name, salary);
+        log_with_timestamp(table->output_file, "Inserted: %s, %u\n", name, salary);
     }
 
     // Release write lock
@@ -171,7 +167,7 @@ void insert(HashTable *table, const char *name, uint32_t salary) {
 hashRecord* search(HashTable *table, const char *name) {
     uint32_t hash = jenkins_one_at_a_time_hash(name);
 
-    //Log the search command
+    // Log the search command
     log_with_timestamp(table->output_file, "SEARCH: %s\n", name);
 
     // Acquire read lock
@@ -191,20 +187,11 @@ hashRecord* search(HashTable *table, const char *name) {
         current = current->next;
     }
 
-    // Create a copy of the record if found
-    hashRecord *copy = NULL;
+    // Log result using log_with_timestamp
     if (result) {
-        copy = malloc(sizeof(hashRecord));
-        if (copy) {
-            memcpy(copy, result, sizeof(hashRecord));
-            copy->next = NULL; // Isolate the copy
-            
-            // Print the found record
-            fprintf(table->output_file, "Found: %s, %u\n", result->name, result->salary);
-        }
+        log_with_timestamp(table->output_file, "Found: %s, %u\n", result->name, result->salary);
     } else {
-        // Print "Not Found" if not found
-        fprintf(table->output_file, "Not Found: %s\n", name);
+        log_with_timestamp(table->output_file, "SEARCH: NOT FOUND NOT FOUND\n");
     }
 
     // Release read lock
@@ -212,14 +199,21 @@ hashRecord* search(HashTable *table, const char *name) {
     table->lock_releases++;
     log_with_timestamp(table->output_file, "READ LOCK RELEASED\n");
 
-    return copy; // Return the isolated copy (caller is responsible for freeing)
+    // Create and return an isolated copy if found (caller is responsible for freeing)
+    if (result) {
+        hashRecord *copy = malloc(sizeof(hashRecord));
+        if (copy) {
+            memcpy(copy, result, sizeof(hashRecord));
+            copy->next = NULL;
+            return copy;
+        }
+    }
+    return NULL;
 }
 
+// Delete a record from the hash table
 void delete(HashTable *table, const char *name) {
     uint32_t hash = jenkins_one_at_a_time_hash(name);
-
-    // Log the delete command
-    log_with_timestamp(table->output_file, "DELETE,%s\n", name);
 
     // Wait for active inserts to finish
     pthread_mutex_lock(&table->cv_mutex);
@@ -229,6 +223,9 @@ void delete(HashTable *table, const char *name) {
     }
     log_with_timestamp(table->output_file, "DELETE AWAKENED\n");
     pthread_mutex_unlock(&table->cv_mutex);
+
+    // Now log the delete command
+    log_with_timestamp(table->output_file, "DELETE,%s\n", name);
 
     // Acquire write lock
     log_with_timestamp(table->output_file, "WRITE LOCK ACQUIRED\n");
@@ -249,7 +246,7 @@ void delete(HashTable *table, const char *name) {
             }
             free(current);
             found = true;
-            fprintf(table->output_file, "Deleted: %s\n", name);
+            log_with_timestamp(table->output_file, "Deleted: %s\n", name);
             break;
         }
         prev = current;
@@ -257,7 +254,7 @@ void delete(HashTable *table, const char *name) {
     }
 
     if (!found) {
-        fprintf(table->output_file, "Delete failed: %s not found\n", name);
+        log_with_timestamp(table->output_file, "Delete failed: %s not found\n", name);
     }
 
     // Release write lock
@@ -267,16 +264,16 @@ void delete(HashTable *table, const char *name) {
 }
 
 // Print the entire hash table (sorted by hash)
-void print_table(HashTable *table) {.
+void print_table(HashTable *table) {
     // Acquire read lock
     log_with_timestamp(table->output_file, "READ LOCK ACQUIRED\n");
     rwlock_acquire_readlock(&table->rwlock);
     table->lock_acquisitions++;
 
-    // Print all records
+    // Print all records (the list is already sorted by hash)
     hashRecord *current = table->head;
     while (current) {
-        fprintf(table->output_file, "%u,%s,%u\n", current->hash, current->name, current->salary);
+        log_with_timestamp(table->output_file, "%u,%s,%u\n", current->hash, current->name, current->salary);
         current = current->next;
     }
 
@@ -288,14 +285,17 @@ void print_table(HashTable *table) {.
 
 // Print a single record
 void print_record(FILE *file, hashRecord *record) {
-    fprintf(file, "Name: %s, Salary: %u\n", record->name, record->salary);
+    log_with_timestamp(file, "Name: %s, Salary: %u\n", record->name, record->salary);
 }
 
+// Print final summary along with sorted hash table content
 void print_summary(HashTable *table) {
-    fprintf(table->output_file, "\nNumber of lock acquisitions: %d\n", table->lock_acquisitions);
+    
+    fprintf(table->output_file, "Finished all threads.\n");
+    fprintf(table->output_file, "Number of lock acquisitions: %d\n", table->lock_acquisitions);
     fprintf(table->output_file, "Number of lock releases: %d\n", table->lock_releases);
 
-    // Print the final hash table content
+    // Print the final hash table content (sorted by hash)
     log_with_timestamp(table->output_file, "READ LOCK ACQUIRED\n");
     rwlock_acquire_readlock(&table->rwlock);
     table->lock_acquisitions++;
@@ -313,7 +313,6 @@ void print_summary(HashTable *table) {
 
 // Free all resources used by the hash table
 void free_table(HashTable *table) {
-
     // Free all records
     hashRecord *current = table->head;
     while (current) {
@@ -331,6 +330,4 @@ void free_table(HashTable *table) {
 
     // Free the table structure itself
     free(table);
-    
 }
-

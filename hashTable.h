@@ -20,8 +20,6 @@ typedef struct hash_struct
     struct hash_struct *next;
 } hashRecord;
 
-
-
 // Hash table with synchronization primitives
 typedef struct {
     hashRecord *head;                // Single linked list head
